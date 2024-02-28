@@ -56,9 +56,15 @@ def extract_domain(url):
 def extract_features(url, english_words):
     num_slashes = url.count('/')
     num_dots = url.count('.')
+    length_of_url = len(url)
     main_domain = extract_domain(url)
     is_english_word = 1 if main_domain in english_words else 0
-    return [num_slashes, num_dots, is_english_word]
+    
+    # New Features
+    path_parts = url.split('/')[3:]  # Ignore protocol and domain
+    avg_word_length = sum(len(part) for part in path_parts) / (len(path_parts) + 1e-5)  # Avoid division by zero
+    
+    return [num_slashes, num_dots, length_of_url, is_english_word, avg_word_length]
 
 # Apply feature extraction to each URL, including the spelling check feature
 features = df['domain'].apply(lambda url: extract_features(url, english_words))
@@ -80,8 +86,8 @@ test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
 class URLClassifier(nn.Module):
     def __init__(self):
         super(URLClassifier, self).__init__()
-        self.fc1 = nn.Linear(3, 5)  # Updated number of input features to 3
-        self.fc2 = nn.Linear(5, 1)
+        self.fc1 = nn.Linear(5, 10)  
+        self.fc2 = nn.Linear(10, 1)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
