@@ -7,66 +7,99 @@ from urllib.parse import urlparse
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-# PREPROCESSING
-# clean data
-clean_lines = []
-with open('urlset.csv', 'rb') as file:  # Open in binary mode
-    for line in file:
-        try:
-            clean_lines.append(line.decode('utf-8'))  # Try to decode each line
-        except UnicodeDecodeError:
-            pass  # Skip lines that cause decoding errors
+def clean_data(input_file='urlset.csv', output_file='cleaned_urlset.csv'):
+    """
+    Clean the input CSV file to handle decoding errors.
 
-with open('cleaned_urlset.csv', 'w', encoding='utf-8') as clean_file:
-    clean_file.writelines(clean_lines)
+    Parameters:
+        input_file (str): Path to the input CSV file.
+        output_file (str): Path to the cleaned output CSV file.
 
-# Load the dataset
-df = pd.read_csv('cleaned_urlset.csv')  
+    Returns:
+        None
+    """
+    clean_lines = []
+    with open(input_file, 'rb') as file:
+        for line in file:
+            try:
+                clean_lines.append(line.decode('utf-8'))
+            except UnicodeDecodeError:
+                pass
 
-# Load the English words to check spelling errors of phishing URL 
+    with open(output_file, 'w', encoding='utf-8') as clean_file:
+        clean_file.writelines(clean_lines)
+
 def load_english_words(filename='words_alpha.txt'):
+    """
+    Load English words from a file.
+
+    Parameters:
+        filename (str): Path to the file containing English words.
+
+    Returns:
+        set: Set containing English words.
+    """
     with open(filename, 'r') as file:
         english_words = set(word.strip().lower() for word in file)
     return english_words
 
-english_words = load_english_words()
-
-# Remove unnecessary columns
-df = df[['domain', 'label']]
-
-# Feature Extraction
 def extract_domain(url):
+    """
+    Extract the main domain from a URL.
+
+    Parameters:
+        url (str): The URL to extract the domain from.
+
+    Returns:
+        str: The main domain extracted from the URL.
+    """
     parsed_url = urlparse(url)
     domain = parsed_url.netloc
-    # Remove 'www.' prefix if present
     domain = domain.replace('www.', '')
     domain_parts = domain.split('.')
-    # Safely handle different domain structures
     if len(domain_parts) > 2:
-        # Return the second last part as the main domain for standard domains
         main_domain = domain_parts[-2]
     elif len(domain_parts) == 2:
-        # Return the first part for domains like 'example.com'
         main_domain = domain_parts[0]
     else:
-        # Return the entire domain if it doesn't have multiple parts
         main_domain = domain
     return main_domain
 
 def extract_features(url, english_words):
+    """
+    Extract features from a URL.
+
+    Parameters:
+        url (str): The URL to extract features from.
+        english_words (set): Set of English words for spelling check.
+
+    Returns:
+        list: List of extracted features from the URL.
+    """
     num_slashes = url.count('/')
     num_dots = url.count('.')
     length_of_url = len(url)
     main_domain = extract_domain(url)
     is_english_word = 1 if main_domain in english_words else 0
     
-    # New Features
-    path_parts = url.split('/')[3:]  # Ignore protocol and domain
-    avg_word_length = sum(len(part) for part in path_parts) / (len(path_parts) + 1e-5)  # Avoid division by zero
+    path_parts = url.split('/')[3:]
+    avg_word_length = sum(len(part) for part in path_parts) / (len(path_parts) + 1e-5)
     
     return [num_slashes, num_dots, length_of_url, is_english_word, avg_word_length]
 
-# Apply feature extraction to each URL, including the spelling check feature
+# Clean the data
+clean_data()
+
+# Load English words for spelling check
+english_words = load_english_words()
+
+# Load the dataset
+df = pd.read_csv('cleaned_urlset.csv')  
+
+# Remove unnecessary columns
+df = df[['domain', 'label']]
+
+# Apply feature extraction to each URL
 features = df['domain'].apply(lambda url: extract_features(url, english_words))
 
 # Convert features and labels into a tensor
@@ -85,11 +118,23 @@ test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
 # Neural Network Model
 class URLClassifier(nn.Module):
     def __init__(self):
+        """
+        Define the architecture of the URL classifier neural network.
+        """
         super(URLClassifier, self).__init__()
-        self.fc1 = nn.Linear(5, 10)  
+        self.fc1 = nn.Linear(5, 10)
         self.fc2 = nn.Linear(10, 1)
 
     def forward(self, x):
+        """
+        Forward pass through the neural network.
+
+        Parameters:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor.
+        """
         x = F.relu(self.fc1(x))
         x = torch.sigmoid(self.fc2(x))
         return x
@@ -99,7 +144,7 @@ criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Training Loop
-for epoch in range(10):  # Number of epochs
+for epoch in range(10):
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(torch.float32), labels.to(torch.float32)
         optimizer.zero_grad()
@@ -110,12 +155,12 @@ for epoch in range(10):  # Number of epochs
     print(f'Epoch {epoch+1}, Loss: {loss.item()}')
 
 # Make predictions on the test set
-model.eval()  # Set the model to evaluation mode
-with torch.no_grad():  # Disable gradient calculation
-    predictions = model(X_test).squeeze()  # Squeeze to remove extra dimensions
-    predictions = torch.round(predictions)  # Round to get binary predictions
+model.eval()
+with torch.no_grad():
+    predictions = model(X_test).squeeze()
+    predictions = torch.round(predictions)
 
-# Convert predictions and true labels to CPU numpy arrays for evaluation with sklearn
+# Convert predictions and true labels to CPU numpy arrays for evaluation
 predictions = predictions.cpu().numpy()
 y_test_np = y_test.cpu().numpy()
 
