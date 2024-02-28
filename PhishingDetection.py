@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
+from urllib.parse import urlparse
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
@@ -19,20 +20,48 @@ with open('urlset.csv', 'rb') as file:  # Open in binary mode
 with open('cleaned_urlset.csv', 'w', encoding='utf-8') as clean_file:
     clean_file.writelines(clean_lines)
 
-# Step 1: Load the dataset
+# Load the dataset
 df = pd.read_csv('cleaned_urlset.csv')  
+
+# Load the English words to check spelling errors of phishing URL 
+def load_english_words(filename='words_alpha.txt'):
+    with open(filename, 'r') as file:
+        english_words = set(word.strip().lower() for word in file)
+    return english_words
+
+english_words = load_english_words()
 
 # Remove unnecessary columns
 df = df[['domain', 'label']]
 
-#Preprocess the data further
-def extract_features(url):
+# Feature Extraction
+def extract_domain(url):
+    parsed_url = urlparse(url)
+    domain = parsed_url.netloc
+    # Remove 'www.' prefix if present
+    domain = domain.replace('www.', '')
+    domain_parts = domain.split('.')
+    # Safely handle different domain structures
+    if len(domain_parts) > 2:
+        # Return the second last part as the main domain for standard domains
+        main_domain = domain_parts[-2]
+    elif len(domain_parts) == 2:
+        # Return the first part for domains like 'example.com'
+        main_domain = domain_parts[0]
+    else:
+        # Return the entire domain if it doesn't have multiple parts
+        main_domain = domain
+    return main_domain
+
+def extract_features(url, english_words):
     num_slashes = url.count('/')
     num_dots = url.count('.')
-    return [num_slashes, num_dots]
+    main_domain = extract_domain(url)
+    is_english_word = 1 if main_domain in english_words else 0
+    return [num_slashes, num_dots, is_english_word]
 
-# Apply feature extraction to each URL
-features = df['domain'].apply(extract_features)
+# Apply feature extraction to each URL, including the spelling check feature
+features = df['domain'].apply(lambda url: extract_features(url, english_words))
 
 # Convert features and labels into a tensor
 features_tensor = torch.tensor(features.tolist(), dtype=torch.float32)
@@ -51,7 +80,7 @@ test_loader = DataLoader(test_data, batch_size=64, shuffle=False)
 class URLClassifier(nn.Module):
     def __init__(self):
         super(URLClassifier, self).__init__()
-        self.fc1 = nn.Linear(2, 5)  # Adjust according to the number of features
+        self.fc1 = nn.Linear(3, 5)  # Updated number of input features to 3
         self.fc2 = nn.Linear(5, 1)
 
     def forward(self, x):
